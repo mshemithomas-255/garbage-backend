@@ -33,6 +33,15 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Secret word for password recovery
+  secretWord: {
+    type: String,
+    default: null,
+  },
+  secretWordSet: {
+    type: Boolean,
+    default: false,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -45,8 +54,21 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("secretWord")) return next();
+  if (this.secretWord) {
+    this.secretWord = await bcrypt.hash(this.secretWord, 10);
+  }
+  next();
+});
+
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
+};
+
+userSchema.methods.compareSecretWord = async function (secretWord) {
+  if (!this.secretWord) return false;
+  return await bcrypt.compare(secretWord, this.secretWord);
 };
 
 module.exports = mongoose.model("User", userSchema);

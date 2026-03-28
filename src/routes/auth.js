@@ -7,6 +7,9 @@ const {
   getMe,
   changePassword,
   updateProfile,
+  setSecretWord,
+  verifySecretWord,
+  resetPassword,
 } = require("../controllers/authController");
 
 // Validation rules
@@ -32,6 +35,30 @@ const updateProfileValidation = [
     .withMessage("Please include a valid email"),
 ];
 
+const secretWordValidation = [
+  body("secretWord")
+    .isLength({ min: 4 })
+    .withMessage("Secret word must be at least 4 characters"),
+  body("confirmSecretWord")
+    .notEmpty()
+    .withMessage("Please confirm your secret word"),
+];
+
+const verifySecretWordValidation = [
+  body("email").isEmail().withMessage("Please include a valid email"),
+  body("secretWord").notEmpty().withMessage("Secret word is required"),
+];
+
+const resetPasswordValidation = [
+  body("resetToken").notEmpty().withMessage("Reset token is required"),
+  body("newPassword")
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters"),
+  body("confirmPassword")
+    .notEmpty()
+    .withMessage("Please confirm your password"),
+];
+
 // Routes
 router.post("/login", loginValidation, login);
 router.get("/me", auth, getMe);
@@ -41,5 +68,12 @@ router.put(
   changePassword,
 );
 router.put("/update-profile", [auth, updateProfileValidation], updateProfile);
+router.post("/set-secret-word", [auth, secretWordValidation], setSecretWord);
+router.post(
+  "/verify-secret-word",
+  verifySecretWordValidation,
+  verifySecretWord,
+);
+router.post("/reset-password", resetPasswordValidation, resetPassword);
 
 module.exports = router;

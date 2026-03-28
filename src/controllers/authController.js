@@ -43,6 +43,7 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        secretWordSet: user.secretWordSet,
       },
     });
   } catch (err) {
@@ -56,7 +57,9 @@ exports.login = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
+    const user = await User.findById(req.user.id).select(
+      "-password -secretWord",
+    );
     res.json(user);
   } catch (err) {
     console.error(err.message);
@@ -95,11 +98,9 @@ exports.changePassword = async (req, res) => {
         .json({ msg: "New password must be different from current password" });
     }
 
-    // Hash new password
+    // Hash and update new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    // Update password
     user.password = hashedPassword;
     await user.save();
 
@@ -114,10 +115,153 @@ exports.changePassword = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        secretWordSet: user.secretWordSet,
       },
     });
   } catch (err) {
     console.error("Error in changePassword:", err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// @desc    Set secret word for password recovery
+// @route   POST /api/auth/set-secret-word
+// @access  Private
+exports.setSecretWord = async (req, res) => {
+  try {
+    const { secretWord, confirmSecretWord } = req.body;
+
+    if (secretWord !== confirmSecretWord) {
+      return res.status(400).json({ msg: "Secret words do not match" });
+    }
+
+    if (secretWord.length < 4) {
+      return res
+        .status(400)
+        .json({ msg: "Secret word must be at least 4 characters" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Hash and save secret word
+    const salt = await bcrypt.genSalt(10);
+    user.secretWord = await bcrypt.hash(secretWord, salt);
+    user.secretWordSet = true;
+    await user.save();
+
+    res.json({
+      msg: "Secret word set successfully",
+      secretWordSet: true,
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// @desc    Verify secret word for password recovery
+// @route   POST /api/auth/verify-secret-word
+// @access  Public
+exports.verifySecretWord = async (req, res) => {
+  try {
+    const { email, secretWord } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    if (!user.secretWordSet) {
+      return res
+        .status(400)
+        .json({ msg: "Secret word not set for this account" });
+    }
+
+    const isMatch = await user.compareSecretWord(secretWord);
+    if (!isMatch) {
+      return res.status(400).json({ msg: "Invalid secret word" });
+    }
+
+    // Generate temporary token for password reset
+    const resetToken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "15m" },
+    );
+
+    res.json({
+      msg: "Secret word verified",
+      resetToken,
+      userId: user._id,
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// @desc    Reset password using secret word
+// @route   POST /api/auth/reset-password
+// @access  Public
+exports.resetPassword = async (req, res) => {
+  try {
+    const { resetToken, newPassword, confirmPassword } = req.body;
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ msg: "Passwords do not match" });
+    }
+
+    if (newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ msg: "Password must be at least 6 characters" });
+    }
+
+    // Verify reset token
+    let decoded;
+    try {
+      decoded = jwt.verify(resetToken, process.env.JWT_SECRET || "secret");
+    } catch (err) {
+      return res.status(400).json({ msg: "Invalid or expired reset token" });
+    }
+
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Check if new password is same as old
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res
+        .status(400)
+        .json({ msg: "New password must be different from current password" });
+    }
+
+    // Hash and update password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    // Generate new login token
+    const loginToken = generateToken(user._id, user.role);
+
+    res.json({
+      msg: "Password reset successfully",
+      token: loginToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        secretWordSet: user.secretWordSet,
+      },
+    });
+  } catch (err) {
+    console.error(err.message);
     res.status(500).send("Server error");
   }
 };
@@ -161,6 +305,7 @@ exports.updateProfile = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        secretWordSet: user.secretWordSet,
       },
     });
   } catch (err) {
