@@ -99,9 +99,9 @@ exports.changePassword = async (req, res) => {
     }
 
     // Hash and update new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-    user.password = hashedPassword;
+    // const salt = await bcrypt.genSalt(10);
+    // const hashedPassword = await bcrypt.hash(newPassword, salt);
+    user.password = newPassword;
     await user.save();
 
     // Generate new token
@@ -147,8 +147,8 @@ exports.setSecretWord = async (req, res) => {
     }
 
     // Hash and save secret word
-    const salt = await bcrypt.genSalt(10);
-    user.secretWord = await bcrypt.hash(secretWord, salt);
+    // const salt = await bcrypt.genSalt(10);
+    user.secretWord = secretWord;
     user.secretWordSet = true;
     await user.save();
 
@@ -186,11 +186,9 @@ exports.verifySecretWord = async (req, res) => {
     }
 
     // Generate temporary token for password reset
-    const resetToken = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET || "secret",
-      { expiresIn: "15m" },
-    );
+    const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
 
     res.json({
       msg: "Secret word verified",
