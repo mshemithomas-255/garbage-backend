@@ -76,6 +76,7 @@ exports.changePassword = async (req, res) => {
 
     const { currentPassword, newPassword } = req.body;
 
+    // Find user by ID
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ msg: "User not found" });
@@ -87,9 +88,19 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ msg: "Current password is incorrect" });
     }
 
+    // Check if new password is same as current
+    if (currentPassword === newPassword) {
+      return res
+        .status(400)
+        .json({ msg: "New password must be different from current password" });
+    }
+
     // Hash new password
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password
+    user.password = hashedPassword;
     await user.save();
 
     // Generate new token
@@ -106,7 +117,7 @@ exports.changePassword = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err.message);
+    console.error("Error in changePassword:", err.message);
     res.status(500).send("Server error");
   }
 };
@@ -125,7 +136,10 @@ exports.updateProfile = async (req, res) => {
 
     // Check if email is already taken by another user
     if (email && email !== user.email) {
-      const existingUser = await User.findOne({ email });
+      const existingUser = await User.findOne({
+        email,
+        _id: { $ne: req.user.id },
+      });
       if (existingUser) {
         return res.status(400).json({ msg: "Email already in use" });
       }
