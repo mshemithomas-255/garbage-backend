@@ -59,6 +59,26 @@ exports.login = async (req, res, next) => {
   }
 };
 
+// @desc    Get current user
+// @route   GET /api/auth/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select(
+      "-password -secretWord",
+    );
+    if (!user) {
+      return next(new AppError("User not found", 404));
+    }
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // @desc    Change password
 // @route   PUT /api/auth/change-password
 // @access  Private
@@ -76,11 +96,13 @@ exports.changePassword = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
+    // Verify current password
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return next(new AppError("Current password is incorrect", 400));
     }
 
+    // Check if new password is same as current
     if (currentPassword === newPassword) {
       return next(
         new AppError(
@@ -90,13 +112,11 @@ exports.changePassword = async (req, res, next) => {
       );
     }
 
-    if (newPassword.length < 6) {
-      return next(new AppError("Password must be at least 6 characters", 400));
-    }
-
+    // Hash and update new password
     user.password = await hashPassword(newPassword);
     await user.save();
 
+    // Generate new token
     const token = generateToken(user._id, user.role);
 
     res.json({
@@ -116,11 +136,71 @@ exports.changePassword = async (req, res, next) => {
   }
 };
 
-// @desc    Set secret word
+// @desc    Update profile
+// @route   PUT /api/auth/update-profile
+// @access  Private
+exports.updateProfile = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new AppError(errors.array()[0].msg, 400));
+    }
+
+    const { name, email } = req.body;
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(new AppError("User not found", 404));
+    }
+
+    // Check if email is already taken by another user
+    if (email && email !== user.email) {
+      const existingUser = await User.findOne({
+        email,
+        _id: { $ne: req.user.id },
+      });
+      if (existingUser) {
+        return next(
+          new AppError("Email already in use by another account", 400),
+        );
+      }
+      user.email = email;
+    }
+
+    if (name) user.name = name;
+
+    await user.save();
+
+    // Generate new token
+    const token = generateToken(user._id, user.role);
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        secretWordSet: user.secretWordSet,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Set secret word for password recovery
 // @route   POST /api/auth/set-secret-word
 // @access  Private
 exports.setSecretWord = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new AppError(errors.array()[0].msg, 400));
+    }
+
     const { secretWord, confirmSecretWord } = req.body;
 
     if (secretWord !== confirmSecretWord) {
@@ -138,6 +218,17 @@ exports.setSecretWord = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
+    // Check if secret word is already set
+    if (user.secretWordSet) {
+      return next(
+        new AppError(
+          "Secret word already set. You cannot change it once set.",
+          400,
+        ),
+      );
+    }
+
+    // Hash and save secret word
     user.secretWord = await hashPassword(secretWord);
     user.secretWordSet = true;
     await user.save();
@@ -153,11 +244,16 @@ exports.setSecretWord = async (req, res, next) => {
   }
 };
 
-// @desc    Verify secret word
+// @desc    Verify secret word for password recovery
 // @route   POST /api/auth/verify-secret-word
 // @access  Public
 exports.verifySecretWord = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new AppError(errors.array()[0].msg, 400));
+    }
+
     const { email, secretWord } = req.body;
 
     const user = await User.findOne({ email });
@@ -168,7 +264,7 @@ exports.verifySecretWord = async (req, res, next) => {
     if (!user.secretWordSet) {
       return next(
         new AppError(
-          "Secret word not set for this account. Please contact admin.",
+          "Secret word not set for this account. Please contact an administrator.",
           400,
         ),
       );
@@ -179,6 +275,7 @@ exports.verifySecretWord = async (req, res, next) => {
       return next(new AppError("Invalid secret word. Please try again.", 400));
     }
 
+    // Generate temporary token for password reset (15 minutes expiry)
     const resetToken = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET || "secret",
@@ -201,6 +298,11 @@ exports.verifySecretWord = async (req, res, next) => {
 // @access  Public
 exports.resetPassword = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new AppError(errors.array()[0].msg, 400));
+    }
+
     const { resetToken, newPassword, confirmPassword } = req.body;
 
     if (newPassword !== confirmPassword) {
@@ -211,13 +313,20 @@ exports.resetPassword = async (req, res, next) => {
       return next(new AppError("Password must be at least 6 characters", 400));
     }
 
+    // Verify reset token
     let decoded;
     try {
       decoded = jwt.verify(resetToken, process.env.JWT_SECRET || "secret");
     } catch (err) {
-      return next(
-        new AppError("Reset link has expired. Please try again.", 400),
-      );
+      if (err.name === "TokenExpiredError") {
+        return next(
+          new AppError(
+            "Reset link has expired. Please request a new one.",
+            400,
+          ),
+        );
+      }
+      return next(new AppError("Invalid reset token. Please try again.", 400));
     }
 
     const user = await User.findById(decoded.userId);
@@ -225,6 +334,7 @@ exports.resetPassword = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
+    // Check if new password is same as old
     const isSamePassword = await user.comparePassword(newPassword);
     if (isSamePassword) {
       return next(
@@ -235,9 +345,11 @@ exports.resetPassword = async (req, res, next) => {
       );
     }
 
+    // Hash and update password
     user.password = await hashPassword(newPassword);
     await user.save();
 
+    // Generate new login token
     const loginToken = generateToken(user._id, user.role);
 
     res.json({
@@ -245,54 +357,6 @@ exports.resetPassword = async (req, res, next) => {
       message:
         "Password reset successfully! You can now login with your new password.",
       token: loginToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        secretWordSet: user.secretWordSet,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc    Update profile
-// @route   PUT /api/auth/update-profile
-// @access  Private
-exports.updateProfile = async (req, res, next) => {
-  try {
-    const { name, email } = req.body;
-
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return next(new AppError("User not found", 404));
-    }
-
-    if (email && email !== user.email) {
-      const existingUser = await User.findOne({
-        email,
-        _id: { $ne: req.user.id },
-      });
-      if (existingUser) {
-        return next(
-          new AppError("Email already in use by another account", 400),
-        );
-      }
-      user.email = email;
-    }
-
-    if (name) user.name = name;
-
-    await user.save();
-
-    const token = generateToken(user._id, user.role);
-
-    res.json({
-      success: true,
-      message: "Profile updated successfully",
-      token,
       user: {
         id: user._id,
         name: user.name,

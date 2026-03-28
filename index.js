@@ -1,8 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-const { errorHandler } = require("./middleware/errorHandler");
+const { errorHandler } = require("./src/middleware/errorHandler");
 const dotenv = require("dotenv");
-const connectDB = require("./config/db");
+const connectDB = require("./src/config/db");
 const path = require("path");
 const morgan = require("morgan"); // Add this for logging
 
@@ -22,7 +22,6 @@ const corsOptions = {
   origin: [
     "http://localhost:3000",
     "http://localhost:5173",
-    "http://localhost:5000",
     "https://collectors-front.vercel.app",
   ],
   credentials: true,
@@ -51,14 +50,14 @@ app.get("/health", (req, res) => {
 });
 
 // API Routes - MUST come before static file serving
-app.use("/api/auth", require("./routes/auth"));
-app.use("/api/locations", require("./routes/locations"));
-app.use("/api/plots", require("./routes/plots"));
-app.use("/api/users", require("./routes/users"));
-app.use("/api/admins", require("./routes/admins"));
+app.use("/api/auth", require("./src/routes/auth"));
+app.use("/api/locations", require("./src/routes/locations"));
+app.use("/api/plots", require("./src/routes/plots"));
+app.use("/api/users", require("./src/routes/users"));
+app.use("/api/admins", require("./src/routes/admins"));
 
 // Default API route
-app.get("/api", (req, res) => {
+app.get("/", (req, res) => {
   res.status(200).json({
     msg: "Welcome to the Garbage Collection API!",
     version: "1.0.0",
