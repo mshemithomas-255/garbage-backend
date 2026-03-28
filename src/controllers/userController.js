@@ -2,6 +2,12 @@ const User = require("../models/User");
 const Plot = require("../models/Plot");
 const bcrypt = require("bcryptjs");
 
+// Helper function to hash password
+const hashPassword = async (password) => {
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(password, salt);
+};
+
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private
@@ -9,7 +15,7 @@ exports.getUsers = async (req, res) => {
   try {
     const users = await User.find()
       .populate("plotId", "name")
-      .select("-password");
+      .select("-password -secretWord");
     res.json(users);
   } catch (err) {
     console.error(err.message);
@@ -24,7 +30,7 @@ exports.getUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
       .populate("plotId", "name")
-      .select("-password");
+      .select("-password -secretWord");
 
     if (!user) {
       return res.status(404).json({ msg: "User not found" });
@@ -50,10 +56,13 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ msg: "User already exists" });
     }
 
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
     user = new User({
       name,
       email,
-      password,
+      password: hashedPassword,
       role: role || "user",
     });
 
@@ -62,6 +71,7 @@ exports.createUser = async (req, res) => {
     // Return user without password
     const userResponse = user.toObject();
     delete userResponse.password;
+    delete userResponse.secretWord;
 
     res.json(userResponse);
   } catch (err) {
@@ -92,7 +102,7 @@ exports.updateUser = async (req, res) => {
     user = await User.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
-    }).select("-password");
+    }).select("-password -secretWord");
 
     // If user is in a plot, update plot totals
     if (user.plotId) {
@@ -215,7 +225,12 @@ exports.markUserPaid = async (req, res) => {
       }
     }
 
-    res.json(user);
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    delete userResponse.secretWord;
+
+    res.json(userResponse);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Server error");
@@ -228,7 +243,7 @@ exports.markUserPaid = async (req, res) => {
 exports.getUsersByPlot = async (req, res) => {
   try {
     const users = await User.find({ plotId: req.params.plotId }).select(
-      "-password",
+      "-password -secretWord",
     );
     res.json(users);
   } catch (err) {

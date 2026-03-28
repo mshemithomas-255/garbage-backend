@@ -48,19 +48,8 @@ const userSchema = new mongoose.Schema({
   },
 });
 
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
-});
-
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("secretWord")) return next();
-  if (this.secretWord) {
-    this.secretWord = await bcrypt.hash(this.secretWord, 10);
-  }
-  next();
-});
+// Remove pre-save hooks - we'll handle hashing in controllers
+// No pre-save hooks here to avoid double hashing
 
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);

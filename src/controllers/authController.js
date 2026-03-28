@@ -12,6 +12,12 @@ const generateToken = (userId, role) => {
   );
 };
 
+// Helper function to hash password
+const hashPassword = async (password) => {
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(password, salt);
+};
+
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
@@ -99,9 +105,7 @@ exports.changePassword = async (req, res) => {
     }
 
     // Hash and update new password
-    // const salt = await bcrypt.genSalt(10);
-    // const hashedPassword = await bcrypt.hash(newPassword, salt);
-    user.password = newPassword;
+    user.password = await hashPassword(newPassword);
     await user.save();
 
     // Generate new token
@@ -147,8 +151,7 @@ exports.setSecretWord = async (req, res) => {
     }
 
     // Hash and save secret word
-    // const salt = await bcrypt.genSalt(10);
-    user.secretWord = secretWord;
+    user.secretWord = await hashPassword(secretWord);
     user.secretWordSet = true;
     await user.save();
 
@@ -186,9 +189,11 @@ exports.verifySecretWord = async (req, res) => {
     }
 
     // Generate temporary token for password reset
-    const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
+    const resetToken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "15m" },
+    );
 
     res.json({
       msg: "Secret word verified",
@@ -240,8 +245,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     // Hash and update password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    user.password = await hashPassword(newPassword);
     await user.save();
 
     // Generate new login token
@@ -306,6 +310,43 @@ exports.updateProfile = async (req, res) => {
         secretWordSet: user.secretWordSet,
       },
     });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+};
+
+// @desc    Create user (for admin)
+// @route   POST /api/auth/create-user
+// @access  Private (Admin only)
+exports.createUser = async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    // Check if user already exists
+    let user = await User.findOne({ email });
+    if (user) {
+      return res.status(400).json({ msg: "User already exists" });
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    user = new User({
+      name,
+      email,
+      password: hashedPassword,
+      role: role || "user",
+    });
+
+    await user.save();
+
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    delete userResponse.secretWord;
+
+    res.json(userResponse);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Server error");

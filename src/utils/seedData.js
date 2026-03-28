@@ -9,6 +9,12 @@ dotenv.config();
 
 const connectDB = require("../config/db");
 
+// Helper function to hash password
+const hashPassword = async (password) => {
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(password, salt);
+};
+
 const seedData = async () => {
   try {
     await connectDB();
@@ -20,12 +26,14 @@ const seedData = async () => {
 
     console.log("Cleared existing data");
 
+    // Hash passwords
+    const hashedPassword = await hashPassword("admin123");
+
     // Create super admin
-    const mypassword = "admin123";
     const superAdmin = await User.create({
       name: "Super Admin",
       email: "superadmin@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "superadmin",
     });
 
@@ -35,7 +43,7 @@ const seedData = async () => {
     const admin = await User.create({
       name: "Admin User",
       email: "admin@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "admin",
     });
 
@@ -100,7 +108,7 @@ const seedData = async () => {
     const user1 = await User.create({
       name: "John Doe",
       email: "john@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "user",
       plotId: plot1._id,
       paymentStatus: "paid",
@@ -110,7 +118,7 @@ const seedData = async () => {
     const user2 = await User.create({
       name: "Jane Smith",
       email: "jane@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "user",
       plotId: plot1._id,
       paymentStatus: "pending",
@@ -120,7 +128,7 @@ const seedData = async () => {
     const user3 = await User.create({
       name: "Bob Johnson",
       email: "bob@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "user",
       plotId: plot2._id,
       paymentStatus: "partial",
@@ -130,7 +138,7 @@ const seedData = async () => {
     const user4 = await User.create({
       name: "Alice Williams",
       email: "alice@example.com",
-      password: mypassword,
+      password: hashedPassword,
       role: "user",
       plotId: plot3._id,
       paymentStatus: "pending",

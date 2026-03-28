@@ -1,4 +1,11 @@
 const User = require("../models/User");
+const bcrypt = require("bcryptjs");
+
+// Helper function to hash password
+const hashPassword = async (password) => {
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(password, salt);
+};
 
 // @desc    Get all admins
 // @route   GET /api/admins
@@ -12,7 +19,7 @@ exports.getAdmins = async (req, res) => {
 
     const admins = await User.find({
       role: { $in: ["superadmin", "admin"] },
-    }).select("-password");
+    }).select("-password -secretWord");
 
     res.json(admins);
   } catch (err) {
@@ -39,10 +46,13 @@ exports.createAdmin = async (req, res) => {
       return res.status(400).json({ msg: "Admin already exists" });
     }
 
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
     admin = new User({
       name,
       email,
-      password,
+      password: hashedPassword,
       role: role || "admin",
     });
 
@@ -51,6 +61,7 @@ exports.createAdmin = async (req, res) => {
     // Return admin without password
     const adminResponse = admin.toObject();
     delete adminResponse.password;
+    delete adminResponse.secretWord;
 
     res.json(adminResponse);
   } catch (err) {
@@ -89,7 +100,7 @@ exports.updateAdmin = async (req, res) => {
     admin = await User.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
-    }).select("-password");
+    }).select("-password -secretWord");
 
     res.json(admin);
   } catch (err) {
@@ -136,7 +147,9 @@ exports.getAdmin = async (req, res) => {
       return res.status(403).json({ msg: "Not authorized. Super admin only." });
     }
 
-    const admin = await User.findById(req.params.id).select("-password");
+    const admin = await User.findById(req.params.id).select(
+      "-password -secretWord",
+    );
     if (!admin) {
       return res.status(404).json({ msg: "Admin not found" });
     }
