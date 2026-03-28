@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const { errorHandler } = require("./src/middleware/errorHandler");
 const dotenv = require("dotenv");
 const connectDB = require("./src/config/db");
 const path = require("path");
@@ -42,6 +43,9 @@ app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ msg: "Something went wrong!" });
 });
+
+// Custom error handler
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
