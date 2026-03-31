@@ -1,110 +1,136 @@
 const User = require("../models/User");
 const Plot = require("../models/Plot");
 const bcrypt = require("bcryptjs");
+const { AppError } = require("../middleware/errorHandler");
 
-// Helper function to hash password
 const hashPassword = async (password) => {
   const salt = await bcrypt.genSalt(10);
   return await bcrypt.hash(password, salt);
 };
 
 // @desc    Get all users
-// @route   GET /api/users
-// @access  Private
-exports.getUsers = async (req, res) => {
+exports.getUsers = async (req, res, next) => {
   try {
     const users = await User.find()
       .populate("plotId", "name")
       .select("-password -secretWord");
-    res.json(users);
+    res.json({
+      success: true,
+      data: users,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Get single user
-// @route   GET /api/users/:id
-// @access  Private
-exports.getUser = async (req, res) => {
+exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id)
       .populate("plotId", "name")
       .select("-password -secretWord");
 
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return next(new AppError("User not found", 404));
     }
 
-    res.json(user);
+    res.json({
+      success: true,
+      data: user,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Create a user
-// @route   POST /api/users
-// @access  Private (Admin only)
-exports.createUser = async (req, res) => {
+exports.createUser = async (req, res, next) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, phone, password, role } = req.body;
 
     // Check if user already exists
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ $or: [{ email }, { phone }] });
     if (user) {
-      return res.status(400).json({ msg: "User already exists" });
+      if (user.email === email) {
+        return next(new AppError("Email already exists", 400));
+      }
+      if (user.phone === phone) {
+        return next(new AppError("Phone number already exists", 400));
+      }
     }
 
-    // Hash password
     const hashedPassword = await hashPassword(password);
 
     user = new User({
       name,
       email,
+      phone,
       password: hashedPassword,
       role: role || "user",
     });
 
     await user.save();
 
-    // Return user without password
     const userResponse = user.toObject();
     delete userResponse.password;
     delete userResponse.secretWord;
 
-    res.json(userResponse);
+    res.json({
+      success: true,
+      message: "User created successfully",
+      data: userResponse,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Update user
-// @route   PUT /api/users/:id
-// @access  Private (Admin only)
-exports.updateUser = async (req, res) => {
+exports.updateUser = async (req, res, next) => {
   try {
-    const { name, email, role, paymentStatus, paidAmount } = req.body;
+    const { name, email, phone, role, paymentStatus, paidAmount } = req.body;
 
     let user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return next(new AppError("User not found", 404));
     }
 
-    const updateData = {};
-    if (name) updateData.name = name;
-    if (email) updateData.email = email;
-    if (role) updateData.role = role;
-    if (paymentStatus) updateData.paymentStatus = paymentStatus;
-    if (paidAmount !== undefined) updateData.paidAmount = paidAmount;
+    // Check email uniqueness
+    if (email && email !== user.email) {
+      const existingUser = await User.findOne({
+        email,
+        _id: { $ne: req.params.id },
+      });
+      if (existingUser) {
+        return next(new AppError("Email already in use", 400));
+      }
+      user.email = email;
+    }
 
-    user = await User.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
-    }).select("-password -secretWord");
+    // Check phone uniqueness
+    if (phone && phone !== user.phone) {
+      const existingUser = await User.findOne({
+        phone,
+        _id: { $ne: req.params.id },
+      });
+      if (existingUser) {
+        return next(new AppError("Phone number already in use", 400));
+      }
+      user.phone = phone;
+    }
 
-    // If user is in a plot, update plot totals
+    if (name) user.name = name;
+    if (role) user.role = role;
+    if (paymentStatus) user.paymentStatus = paymentStatus;
+    if (paidAmount !== undefined) user.paidAmount = paidAmount;
+
+    await user.save();
+
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    delete userResponse.secretWord;
+
+    // Update plot totals if needed
     if (user.plotId) {
       const plot = await Plot.findById(user.plotId);
       if (plot) {
@@ -115,7 +141,6 @@ exports.updateUser = async (req, res) => {
         plot.paidAmount = totalPaid;
         await plot.save();
 
-        // Update location totals
         const Location = require("../models/Location");
         const location = await Location.findById(plot.locationId);
         if (location) {
@@ -129,24 +154,24 @@ exports.updateUser = async (req, res) => {
       }
     }
 
-    res.json(user);
+    res.json({
+      success: true,
+      message: "User updated successfully",
+      data: userResponse,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Delete user
-// @route   DELETE /api/users/:id
-// @access  Private (Admin only)
-exports.deleteUser = async (req, res) => {
+exports.deleteUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return next(new AppError("User not found", 404));
     }
 
-    // Remove user from plot if assigned
     if (user.plotId) {
       const plot = await Plot.findById(user.plotId);
       if (plot) {
@@ -155,7 +180,6 @@ exports.deleteUser = async (req, res) => {
         );
         await plot.save();
 
-        // Update plot totals
         const totalPaid = (await User.find({ plotId: plot._id })).reduce(
           (sum, u) => sum + (u.paidAmount || 0),
           0,
@@ -166,29 +190,28 @@ exports.deleteUser = async (req, res) => {
     }
 
     await user.deleteOne();
-    res.json({ msg: "User deleted successfully" });
+
+    res.json({
+      success: true,
+      message: "User deleted successfully",
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Mark user as paid
-// @route   PUT /api/users/:id/pay
-// @access  Private (Admin only)
-exports.markUserPaid = async (req, res) => {
+exports.markUserPaid = async (req, res, next) => {
   try {
     const { amount } = req.body;
 
     let user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return next(new AppError("User not found", 404));
     }
 
     user.paidAmount = (user.paidAmount || 0) + amount;
 
-    // Update payment status based on paid amount
-    // Assuming monthly fee is 100, you can adjust this
     const monthlyFee = 100;
     if (user.paidAmount >= monthlyFee) {
       user.paymentStatus = "paid";
@@ -200,7 +223,6 @@ exports.markUserPaid = async (req, res) => {
 
     await user.save();
 
-    // Update plot totals if user is in a plot
     if (user.plotId) {
       const plot = await Plot.findById(user.plotId);
       if (plot) {
@@ -211,7 +233,6 @@ exports.markUserPaid = async (req, res) => {
         plot.paidAmount = totalPaid;
         await plot.save();
 
-        // Update location totals
         const Location = require("../models/Location");
         const location = await Location.findById(plot.locationId);
         if (location) {
@@ -225,29 +246,31 @@ exports.markUserPaid = async (req, res) => {
       }
     }
 
-    // Return user without password
     const userResponse = user.toObject();
     delete userResponse.password;
     delete userResponse.secretWord;
 
-    res.json(userResponse);
+    res.json({
+      success: true,
+      message: `Payment of KSh ${amount} added successfully`,
+      data: userResponse,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Get users by plot
-// @route   GET /api/users/plot/:plotId
-// @access  Private
-exports.getUsersByPlot = async (req, res) => {
+exports.getUsersByPlot = async (req, res, next) => {
   try {
     const users = await User.find({ plotId: req.params.plotId }).select(
       "-password -secretWord",
     );
-    res.json(users);
+    res.json({
+      success: true,
+      data: users,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };

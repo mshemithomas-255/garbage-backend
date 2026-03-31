@@ -33,6 +33,10 @@ const updateProfileValidation = [
     .optional()
     .isEmail()
     .withMessage("Please include a valid email"),
+  body("phone")
+    .optional()
+    .matches(/^[0-9]{10,15}$/)
+    .withMessage("Please include a valid phone number (10-15 digits)"),
 ];
 
 const secretWordValidation = [

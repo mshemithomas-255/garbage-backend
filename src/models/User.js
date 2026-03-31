@@ -11,6 +11,12 @@ const userSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+    sparse: true,
+  },
   password: {
     type: String,
     required: true,
@@ -48,13 +54,12 @@ const userSchema = new mongoose.Schema({
   },
 });
 
-// Remove pre-save hooks - we'll handle hashing in controllers
-// No pre-save hooks here to avoid double hashing
-
+// Method to compare password
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
 
+// Method to compare secret word
 userSchema.methods.compareSecretWord = async function (secretWord) {
   if (!this.secretWord) return false;
   return await bcrypt.compare(secretWord, this.secretWord);

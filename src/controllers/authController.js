@@ -50,6 +50,7 @@ exports.login = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
         secretWordSet: user.secretWordSet,
       },
@@ -96,13 +97,11 @@ exports.changePassword = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
-    // Verify current password
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return next(new AppError("Current password is incorrect", 400));
     }
 
-    // Check if new password is same as current
     if (currentPassword === newPassword) {
       return next(
         new AppError(
@@ -112,11 +111,9 @@ exports.changePassword = async (req, res, next) => {
       );
     }
 
-    // Hash and update new password
     user.password = await hashPassword(newPassword);
     await user.save();
 
-    // Generate new token
     const token = generateToken(user._id, user.role);
 
     res.json({
@@ -127,6 +124,7 @@ exports.changePassword = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
         secretWordSet: user.secretWordSet,
       },
@@ -146,7 +144,7 @@ exports.updateProfile = async (req, res, next) => {
       return next(new AppError(errors.array()[0].msg, 400));
     }
 
-    const { name, email } = req.body;
+    const { name, email, phone } = req.body;
 
     const user = await User.findById(req.user.id);
     if (!user) {
@@ -167,11 +165,24 @@ exports.updateProfile = async (req, res, next) => {
       user.email = email;
     }
 
+    // Check if phone is already taken by another user
+    if (phone && phone !== user.phone) {
+      const existingUser = await User.findOne({
+        phone,
+        _id: { $ne: req.user.id },
+      });
+      if (existingUser) {
+        return next(
+          new AppError("Phone number already in use by another account", 400),
+        );
+      }
+      user.phone = phone;
+    }
+
     if (name) user.name = name;
 
     await user.save();
 
-    // Generate new token
     const token = generateToken(user._id, user.role);
 
     res.json({
@@ -182,6 +193,7 @@ exports.updateProfile = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
         secretWordSet: user.secretWordSet,
       },
@@ -191,7 +203,7 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
-// @desc    Set secret word for password recovery
+// @desc    Set secret word
 // @route   POST /api/auth/set-secret-word
 // @access  Private
 exports.setSecretWord = async (req, res, next) => {
@@ -218,7 +230,6 @@ exports.setSecretWord = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
-    // Check if secret word is already set
     if (user.secretWordSet) {
       return next(
         new AppError(
@@ -228,15 +239,13 @@ exports.setSecretWord = async (req, res, next) => {
       );
     }
 
-    // Hash and save secret word
     user.secretWord = await hashPassword(secretWord);
     user.secretWordSet = true;
     await user.save();
 
     res.json({
       success: true,
-      message:
-        "Secret word set successfully! You can now use it for password recovery.",
+      message: "Secret word set successfully!",
       secretWordSet: true,
     });
   } catch (err) {
@@ -244,7 +253,7 @@ exports.setSecretWord = async (req, res, next) => {
   }
 };
 
-// @desc    Verify secret word for password recovery
+// @desc    Verify secret word
 // @route   POST /api/auth/verify-secret-word
 // @access  Public
 exports.verifySecretWord = async (req, res, next) => {
@@ -262,20 +271,14 @@ exports.verifySecretWord = async (req, res, next) => {
     }
 
     if (!user.secretWordSet) {
-      return next(
-        new AppError(
-          "Secret word not set for this account. Please contact an administrator.",
-          400,
-        ),
-      );
+      return next(new AppError("Secret word not set for this account", 400));
     }
 
     const isMatch = await user.compareSecretWord(secretWord);
     if (!isMatch) {
-      return next(new AppError("Invalid secret word. Please try again.", 400));
+      return next(new AppError("Invalid secret word", 400));
     }
 
-    // Generate temporary token for password reset (15 minutes expiry)
     const resetToken = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET || "secret",
@@ -293,7 +296,7 @@ exports.verifySecretWord = async (req, res, next) => {
   }
 };
 
-// @desc    Reset password using secret word
+// @desc    Reset password
 // @route   POST /api/auth/reset-password
 // @access  Public
 exports.resetPassword = async (req, res, next) => {
@@ -313,20 +316,14 @@ exports.resetPassword = async (req, res, next) => {
       return next(new AppError("Password must be at least 6 characters", 400));
     }
 
-    // Verify reset token
     let decoded;
     try {
       decoded = jwt.verify(resetToken, process.env.JWT_SECRET || "secret");
     } catch (err) {
       if (err.name === "TokenExpiredError") {
-        return next(
-          new AppError(
-            "Reset link has expired. Please request a new one.",
-            400,
-          ),
-        );
+        return next(new AppError("Reset link has expired", 400));
       }
-      return next(new AppError("Invalid reset token. Please try again.", 400));
+      return next(new AppError("Invalid reset token", 400));
     }
 
     const user = await User.findById(decoded.userId);
@@ -334,7 +331,6 @@ exports.resetPassword = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
 
-    // Check if new password is same as old
     const isSamePassword = await user.comparePassword(newPassword);
     if (isSamePassword) {
       return next(
@@ -345,22 +341,20 @@ exports.resetPassword = async (req, res, next) => {
       );
     }
 
-    // Hash and update password
     user.password = await hashPassword(newPassword);
     await user.save();
 
-    // Generate new login token
     const loginToken = generateToken(user._id, user.role);
 
     res.json({
       success: true,
-      message:
-        "Password reset successfully! You can now login with your new password.",
+      message: "Password reset successfully",
       token: loginToken,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
         secretWordSet: user.secretWordSet,
       },

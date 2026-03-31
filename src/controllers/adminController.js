@@ -1,162 +1,182 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const { AppError } = require("../middleware/errorHandler");
 
-// Helper function to hash password
 const hashPassword = async (password) => {
   const salt = await bcrypt.genSalt(10);
   return await bcrypt.hash(password, salt);
 };
 
 // @desc    Get all admins
-// @route   GET /api/admins
-// @access  Private (Super Admin only)
-exports.getAdmins = async (req, res) => {
+exports.getAdmins = async (req, res, next) => {
   try {
-    // Check if user is super admin
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ msg: "Not authorized. Super admin only." });
+      return next(new AppError("Not authorized. Super admin only.", 403));
     }
 
     const admins = await User.find({
       role: { $in: ["superadmin", "admin"] },
     }).select("-password -secretWord");
 
-    res.json(admins);
+    res.json({
+      success: true,
+      data: admins,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Create admin
-// @route   POST /api/admins
-// @access  Private (Super Admin only)
-exports.createAdmin = async (req, res) => {
+exports.createAdmin = async (req, res, next) => {
   try {
-    // Check if user is super admin
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ msg: "Not authorized. Super admin only." });
+      return next(new AppError("Not authorized. Super admin only.", 403));
     }
 
-    const { name, email, password, role } = req.body;
+    const { name, email, phone, password, role } = req.body;
 
-    // Check if admin already exists
-    let admin = await User.findOne({ email });
+    let admin = await User.findOne({ $or: [{ email }, { phone }] });
     if (admin) {
-      return res.status(400).json({ msg: "Admin already exists" });
+      if (admin.email === email) {
+        return next(new AppError("Email already exists", 400));
+      }
+      if (admin.phone === phone) {
+        return next(new AppError("Phone number already exists", 400));
+      }
     }
 
-    // Hash password
     const hashedPassword = await hashPassword(password);
 
     admin = new User({
       name,
       email,
+      phone,
       password: hashedPassword,
       role: role || "admin",
     });
 
     await admin.save();
 
-    // Return admin without password
     const adminResponse = admin.toObject();
     delete adminResponse.password;
     delete adminResponse.secretWord;
 
-    res.json(adminResponse);
+    res.json({
+      success: true,
+      message: "Admin created successfully",
+      data: adminResponse,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Update admin
-// @route   PUT /api/admins/:id
-// @access  Private (Super Admin only)
-exports.updateAdmin = async (req, res) => {
+exports.updateAdmin = async (req, res, next) => {
   try {
-    // Check if user is super admin
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ msg: "Not authorized. Super admin only." });
+      return next(new AppError("Not authorized. Super admin only.", 403));
     }
 
-    const { name, email, role } = req.body;
+    const { name, email, phone, role } = req.body;
 
     let admin = await User.findById(req.params.id);
     if (!admin) {
-      return res.status(404).json({ msg: "Admin not found" });
+      return next(new AppError("Admin not found", 404));
     }
 
-    // Prevent changing superadmin role
     if (admin.role === "superadmin" && role !== "superadmin") {
-      return res.status(400).json({ msg: "Cannot change superadmin role" });
+      return next(new AppError("Cannot change superadmin role", 400));
     }
 
-    const updateData = {};
-    if (name) updateData.name = name;
-    if (email) updateData.email = email;
-    if (role && admin.role !== "superadmin") updateData.role = role;
+    if (email && email !== admin.email) {
+      const existingUser = await User.findOne({
+        email,
+        _id: { $ne: req.params.id },
+      });
+      if (existingUser) {
+        return next(new AppError("Email already in use", 400));
+      }
+      admin.email = email;
+    }
 
-    admin = await User.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
-    }).select("-password -secretWord");
+    if (phone && phone !== admin.phone) {
+      const existingUser = await User.findOne({
+        phone,
+        _id: { $ne: req.params.id },
+      });
+      if (existingUser) {
+        return next(new AppError("Phone number already in use", 400));
+      }
+      admin.phone = phone;
+    }
 
-    res.json(admin);
+    if (name) admin.name = name;
+    if (role && admin.role !== "superadmin") admin.role = role;
+
+    await admin.save();
+
+    const adminResponse = admin.toObject();
+    delete adminResponse.password;
+    delete adminResponse.secretWord;
+
+    res.json({
+      success: true,
+      message: "Admin updated successfully",
+      data: adminResponse,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Delete admin
-// @route   DELETE /api/admins/:id
-// @access  Private (Super Admin only)
-exports.deleteAdmin = async (req, res) => {
+exports.deleteAdmin = async (req, res, next) => {
   try {
-    // Check if user is super admin
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ msg: "Not authorized. Super admin only." });
+      return next(new AppError("Not authorized. Super admin only.", 403));
     }
 
     const admin = await User.findById(req.params.id);
     if (!admin) {
-      return res.status(404).json({ msg: "Admin not found" });
+      return next(new AppError("Admin not found", 404));
     }
 
-    // Prevent deleting superadmin
     if (admin.role === "superadmin") {
-      return res.status(400).json({ msg: "Cannot delete superadmin" });
+      return next(new AppError("Cannot delete superadmin", 400));
     }
 
     await admin.deleteOne();
-    res.json({ msg: "Admin deleted successfully" });
+
+    res.json({
+      success: true,
+      message: "Admin deleted successfully",
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
 
 // @desc    Get admin by ID
-// @route   GET /api/admins/:id
-// @access  Private (Super Admin only)
-exports.getAdmin = async (req, res) => {
+exports.getAdmin = async (req, res, next) => {
   try {
-    // Check if user is super admin
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ msg: "Not authorized. Super admin only." });
+      return next(new AppError("Not authorized. Super admin only.", 403));
     }
 
     const admin = await User.findById(req.params.id).select(
       "-password -secretWord",
     );
     if (!admin) {
-      return res.status(404).json({ msg: "Admin not found" });
+      return next(new AppError("Admin not found", 404));
     }
 
-    res.json(admin);
+    res.json({
+      success: true,
+      data: admin,
+    });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send("Server error");
+    next(err);
   }
 };
