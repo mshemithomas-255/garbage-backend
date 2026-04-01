@@ -33,6 +33,7 @@ const seedData = async () => {
     const superAdmin = await User.create({
       name: "Super Admin",
       email: "superadmin@example.com",
+      phone: "0710000000",
       password: hashedPassword,
       role: "superadmin",
     });
@@ -41,8 +42,9 @@ const seedData = async () => {
 
     // Create regular admin
     const admin = await User.create({
-      name: "Admin User",
-      email: "admin@example.com",
+      name: "Thomas Masitsa",
+      email: "thomas.masitsa@gammaridge.com",
+      phone: "0720211234",
       password: hashedPassword,
       role: "admin",
     });
@@ -109,6 +111,7 @@ const seedData = async () => {
       name: "John Doe",
       email: "john@example.com",
       password: hashedPassword,
+      phone: "0712345678",
       role: "user",
       plotId: plot1._id,
       paymentStatus: "paid",
@@ -119,6 +122,8 @@ const seedData = async () => {
       name: "Jane Smith",
       email: "jane@example.com",
       password: hashedPassword,
+      phone: "0723456789",
+
       role: "user",
       plotId: plot1._id,
       paymentStatus: "pending",
@@ -129,6 +134,7 @@ const seedData = async () => {
       name: "Bob Johnson",
       email: "bob@example.com",
       password: hashedPassword,
+      phone: "0734567890",
       role: "user",
       plotId: plot2._id,
       paymentStatus: "partial",
@@ -139,6 +145,7 @@ const seedData = async () => {
       name: "Alice Williams",
       email: "alice@example.com",
       password: hashedPassword,
+      phone: "0745678901",
       role: "user",
       plotId: plot3._id,
       paymentStatus: "pending",
